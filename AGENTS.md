@@ -61,3 +61,10 @@
 - Unified chat: DM messages and COMMENTS_CHAT_ID discussion-group messages go to the LLM chat (non-command text only). History: state/chat_history.json, last 30 messages.
 - News: published to CHANNEL_ID only via /news from admin. Hashtags kept (repo tags + #opensource #devlife #commit). Context: last known commits come from state/last_commits.json.
 - Git policy: NEVER --amend or force-push; every change is a new commit.
+
+## Decisions (addendum: repo attribution & discussion cooldown)
+- format_commit() includes repo per commit line; news prompt explicitly tells Monika commits may come from different repos and she must attribute each change to its repo.
+- Channel auto-forwards into the discussion group are ignored (sender_chat / is_automatic_forward) so news never re-enters chat history as a user message.
+- Published news articles are appended to chat history as assistant messages (Monika remembers her own posts).
+- Discussion group: reply at most once per 15 minutes (DISCUSSION_COOLDOWN_SEC, ts in state/last_reply_ts.json).
+- Chat replies never contain hashtags (persona rule).

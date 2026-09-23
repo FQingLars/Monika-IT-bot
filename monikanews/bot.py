@@ -2,6 +2,7 @@
 """Telegram bot: Monika persona, /news command and unified LLM chat."""
 
 import os
+import time
 
 from aiogram import Bot, Dispatcher, F, Router, types
 from aiogram.filters import Command
@@ -15,9 +16,11 @@ from monikanews.state import (
     load_chat_history,
     load_commits_state,
     load_last_commits,
+    load_last_reply_ts,
     mark_published,
     save_commits_state,
     save_last_commits,
+    save_last_reply_ts,
     set_last_timestamp,
 )
 from monikanews.telegram import fetch_channel_messages
@@ -26,6 +29,7 @@ from monikanews.telegram import fetch_channel_messages
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "940454804"))
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1000000000000"))
 COMMENTS_CHAT_ID = int(os.environ.get("COMMENTS_CHAT_ID", "0"))
+DISCUSSION_COOLDOWN_SEC = 15 * 60
 
 
 router = Router()
@@ -41,7 +45,12 @@ def _recent_commits_context() -> str:
 
 
 async def process_chat_message(message: types.Message) -> None:
-    """Unified Monika chat: reply via LLM and remember the dialog."""
+    """Unified Monika chat: reply via LLM and remember the dialog.
+
+    Ignores automatic channel-post forwards (they duplicate news into history).
+    """
+    if getattr(message, "sender_chat", None) or getattr(message, "is_automatic_forward", False):
+        return
     text = message.text or ""
     history = load_chat_history()
     reply = await chat_reply(
@@ -88,6 +97,9 @@ async def handle_news_command(message: types.Message):
     set_last_timestamp(state_dict, commits[0]["date"])
     save_commits_state(state_dict)
 
+    # Monika remembers her own published post
+    append_chat_message("assistant", article)
+
     await message.answer(f"✅ Новость опубликована в канале ({len(commits)} коммитов).")
 
 
@@ -103,7 +115,12 @@ async def handle_private_message(message: types.Message):
     ~F.text.startswith("/"),
 )
 async def handle_discussion_message(message: types.Message):
+    """Reply in the discussion group at most once per DISCUSSION_COOLDOWN_SEC."""
+    now = time.time()
+    if now - load_last_reply_ts() < DISCUSSION_COOLDOWN_SEC:
+        return
     await process_chat_message(message)
+    save_last_reply_ts(now)
 
 
 async def send_message(chat_id: int, text: str):

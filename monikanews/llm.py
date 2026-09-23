@@ -38,7 +38,8 @@ def _make_hashtags_extra(repo_name: str) -> str:
 
 
 def format_commit(commit: dict) -> str:
-    """Format one commit with message, stats and files."""
+    """Format one commit: repo, sha, message, stats, files."""
+    repo = commit.get("repo", "unknown")
     sha = commit.get("sha", "")[:7]
     msg = commit.get("message", "")
     stats = commit.get("stats", {})
@@ -48,7 +49,7 @@ def format_commit(commit: dict) -> str:
     files_str = ", ".join(files[:5]) if files else "нет изменений"
     if len(files) > 5:
         files_str += f" и ещё {len(files) - 5}"
-    return f"- Коммит {sha}: {msg} (+{additions} -{deletions}, {files_str})"
+    return f"- {repo} — коммит {sha}: {msg} (+{additions} -{deletions}, {files_str})"
 
 
 async def _complete(messages: list[dict], model: str | None) -> str:
@@ -81,8 +82,9 @@ async def generate_news_article(
     commits_detail = "\n".join(format_commit(c) for c in commits)
     task = (
         "Задача: напиши новость для канала о коммитах ниже. "
-        "Объём 3-5 предложений, только факты из коммитов, без Markdown, без хэштегов.\n\n"
-        "Репозиторий: " + repo_name + "\n"
+        "Объём 3-5 предложений, только факты из коммитов, без Markdown, без хэштегов. "
+        "Внимание: коммиты могут быть из разных репозиториев — для каждого изменения "
+        "указывай, из какого он репозитория.\n\n"
         "Коммиты:\n" + commits_detail + ctx_str + "\n\nНовость:"
     )
     messages = [

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""State management: commit states, fetch timestamp, chat history."""
+"""State management: commit states, timestamp, chat history, reply cooldown."""
 
 import json
 import os
@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = str(PROJECT_ROOT / "state" / "commits_state.json")
 CHAT_HISTORY_FILE = str(PROJECT_ROOT / "state" / "chat_history.json")
 LAST_COMMITS_FILE = str(PROJECT_ROOT / "state" / "last_commits.json")
+LAST_REPLY_TS_FILE = str(PROJECT_ROOT / "state" / "last_reply_ts.json")
 CHAT_HISTORY_LIMIT = 30
 
 os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
@@ -117,3 +118,21 @@ def save_last_commits(commits: list[dict], path: str = LAST_COMMITS_FILE) -> Non
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(commits, f, ensure_ascii=False, indent=2)
+
+
+def load_last_reply_ts(path: str = LAST_REPLY_TS_FILE) -> float:
+    """Load the unix timestamp of the last discussion-group reply."""
+    if not os.path.exists(path):
+        return 0.0
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return float(data.get("ts", 0.0))
+    except (json.JSONDecodeError, IOError, TypeError, ValueError):
+        return 0.0
+
+
+def save_last_reply_ts(ts: float, path: str = LAST_REPLY_TS_FILE) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"ts": ts}, f)

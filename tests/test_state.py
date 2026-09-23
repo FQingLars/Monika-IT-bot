@@ -125,3 +125,14 @@ def test_last_commits_roundtrip():
     save_last_commits([{"sha": "abc", "repo": "r"}])
     assert load_last_commits() == [{"sha": "abc", "repo": "r"}]
     os.remove(LAST_COMMITS_FILE)
+
+
+def test_last_reply_ts_roundtrip():
+    import os
+    from monikanews.state import LAST_REPLY_TS_FILE, load_last_reply_ts, save_last_reply_ts
+    if os.path.exists(LAST_REPLY_TS_FILE):
+        os.remove(LAST_REPLY_TS_FILE)
+    assert load_last_reply_ts() == 0.0
+    save_last_reply_ts(1727123456.5)
+    assert load_last_reply_ts() == 1727123456.5
+    os.remove(LAST_REPLY_TS_FILE)

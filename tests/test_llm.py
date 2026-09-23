@@ -37,7 +37,23 @@ async def test_generate_news_article_system_persona():
     assert "Моника" in messages[0]["content"]
     user = messages[1]["content"]
     assert "abc123d" in user
+    assert "FQingLars/Monika-IT-bot" in user
     assert "3-5 предложений" in user
+
+
+@pytest.mark.asyncio
+async def test_generate_news_article_multi_repo_in_prompt():
+    commits = [
+        {"message": "book sync", "sha": "aaaa1111", "repo": "FQingLars/QLISP-Project"},
+        {"message": "bot update", "sha": "bbbb2222", "repo": "FQingLars/Monika-IT-bot"},
+    ]
+    with patch("monikanews.llm.AsyncOpenAI") as MockClient:
+        instance = MockClient.return_value
+        instance.chat.completions.create = AsyncMock(return_value=_mock_response())
+        await generate_news_article(commits)
+    user = instance.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+    assert "FQingLars/QLISP-Project" in user
+    assert "FQingLars/Monika-IT-bot" in user
 
 
 @pytest.mark.asyncio
@@ -81,10 +97,12 @@ def test_format_commit():
     commit = {
         "sha": "abc123def456",
         "message": "fix bug",
+        "repo": "FQingLars/QLISP-Project",
         "stats": {"additions": 5, "deletions": 2, "total": 7},
-        "files": ["file1.py", "file2.py", "file3.py"],
+        "files": ["file1.py", "file2.py"],
     }
     result = format_commit(commit)
+    assert "FQingLars/QLISP-Project" in result
     assert "+5 -2" in result
     assert "file1.py" in result
 
