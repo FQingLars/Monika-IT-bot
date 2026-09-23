@@ -55,3 +55,9 @@
 - GitHub Events API `since` param requires ISO 8601 timestamp, NOT event ID.
 - Store `commit.committer.date` or `commit.author.date` from commits[0], not event ID.
 - If repo returns 404, verify repo name exists with `gh api /repos/{owner}/{repo}`.
+
+## Decisions (addendum: Monika persona & unified chat)
+- Monika persona: canonical DDLC Monika — warm, poetic, caring, no sarcasm. Prompt lives in monikanews/persona.md and is loaded as the system message for EVERY LLM call (news + chat).
+- Unified chat: DM messages and COMMENTS_CHAT_ID discussion-group messages go to the LLM chat (non-command text only). History: state/chat_history.json, last 30 messages.
+- News: published to CHANNEL_ID only via /news from admin. Hashtags kept (repo tags + #opensource #devlife #commit). Context: last known commits come from state/last_commits.json.
+- Git policy: NEVER --amend or force-push; every change is a new commit.

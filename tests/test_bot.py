@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-import pytest
 import os
-from unittest.mock import AsyncMock, patch, MagicMock
-from monikanews.bot import create_bot, handle_news_command
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from monikanews.bot import create_bot, handle_news_command, process_chat_message
 
 
 ADMIN_CHAT_ID = 940454804
@@ -11,10 +13,9 @@ CHANNEL_ID = -1001234567890
 
 @pytest.mark.asyncio
 async def test_create_bot_returns_dispatcher():
-    bot_token = "test-token"
     with patch("monikanews.bot.Bot") as MockBot, patch("monikanews.bot.Dispatcher") as MockDispatcher:
-        create_bot(bot_token)
-        MockBot.assert_called_once_with(token=bot_token)
+        create_bot("test-token")
+        MockBot.assert_called_once_with(token="test-token")
         MockDispatcher.assert_called_once()
 
 
@@ -47,12 +48,12 @@ async def test_handle_news_command_sends_to_channel():
     importlib.reload(monikanews.bot)
     from monikanews.bot import handle_news_command
     mock_commit = {"message": "Add new feature", "sha": "def456new789abcdef0123456789abcdef", "author": "FQingLars", "repo": "FQingLars/Monika-IT-bot", "date": "2026-09-20T16:00:00Z"}
-    with patch("monikanews.bot.fetch_new_pushes") as MockFetch, patch("monikanews.bot.generate_news_article") as MockLLM, patch("monikanews.bot.fetch_channel_messages") as MockCtx, patch("monikanews.bot.save_commits_state") as MockSaveState, patch("monikanews.bot.send_message") as MockSend:
+    with patch("monikanews.bot.fetch_new_pushes") as MockFetch, patch("monikanews.bot.generate_news_article") as MockLLM, patch("monikanews.bot.fetch_channel_messages") as MockCtx, patch("monikanews.bot.save_commits_state") as MockSaveState, patch("monikanews.bot.send_message") as MockSend, patch("monikanews.bot.save_last_commits") as MockSaveLast:
         MockFetch.return_value = [mock_commit]
         MockCtx.return_value = ["old channel message"]
+        MockLLM.return_value = "Here is the news!"
         with patch("monikanews.bot.load_commits_state") as MockLoadState:
             MockLoadState.return_value = {"last_timestamp": "2026-09-20T14:00:00Z"}
-            MockLLM.return_value = "Here is the news!"
             message = MagicMock()
             message.chat.id = ADMIN_CHAT_ID
             message.answer = AsyncMock()
@@ -61,6 +62,7 @@ async def test_handle_news_command_sends_to_channel():
             MockSaveState.assert_called_once()
             MockSend.assert_called_once()
             MockCtx.assert_called_once()
+            MockSaveLast.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -80,4 +82,28 @@ async def test_handle_news_command_no_new_pushes():
     with patch("monikanews.bot.fetch_new_pushes") as MockFetch:
         MockFetch.return_value = []
         await handle_news_command(message)
-    message.answer.assert_called_once_with("📘 Нет данных о коммитах.")
+    message.answer.assert_called_once_with("Пока нет данных о коммитах. Загляни чуть позже! (^_^)")
+
+
+@pytest.mark.asyncio
+async def test_process_chat_message_replies_and_saves_history():
+    with patch("monikanews.bot.chat_reply", AsyncMock(return_value="Привет! Я Моника (^_^)")) as mock_chat, patch("monikanews.bot.load_chat_history", return_value=[]), patch("monikanews.bot.append_chat_message") as mock_append, patch("monikanews.bot.load_last_commits", return_value=[]):
+        message = MagicMock()
+        message.text = "Привет"
+        message.answer = AsyncMock()
+        await process_chat_message(message)
+        mock_chat.assert_awaited_once()
+        message.answer.assert_awaited_once_with("Привет! Я Моника (^_^)")
+        assert mock_append.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_process_chat_message_includes_recent_commits_context():
+    commits = [{"sha": "abc123def456", "message": "fix", "repo": "FQingLars/X", "stats": {}, "files": []}]
+    with patch("monikanews.bot.chat_reply", AsyncMock(return_value="ok")) as mock_chat, patch("monikanews.bot.load_chat_history", return_value=[]), patch("monikanews.bot.append_chat_message"), patch("monikanews.bot.load_last_commits", return_value=commits):
+        message = MagicMock()
+        message.text = "Что нового?"
+        message.answer = AsyncMock()
+        await process_chat_message(message)
+    kwargs = mock_chat.call_args.kwargs
+    assert "abc123d" in kwargs["extra_context"]

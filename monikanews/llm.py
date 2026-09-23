@@ -1,11 +1,25 @@
 # -*- coding: utf-8 -*-
-"""LLM client for generating Monika-style news articles."""
+"""LLM client: Monika persona from persona.md + news and chat generation."""
 
 import os
+from pathlib import Path
+
 from openai import AsyncOpenAI
 
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+PERSONA_PATH = Path(__file__).resolve().parent / "persona.md"
+
+
+def load_persona() -> str:
+    """Load the Monika persona system prompt."""
+    try:
+        return PERSONA_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return (
+            "Ты — Моника, тёплая и обаятельная ведущая MonikaNews. "
+            "Говори по-русски на ты, только факты, без Markdown."
+        )
 
 
 def _make_hashtags(repo_name: str) -> str:
@@ -23,8 +37,8 @@ def _make_hashtags_extra(repo_name: str) -> str:
     return " ".join(extra)
 
 
-def _format_commit(commit: dict) -> str:
-    """Format a commit with stats and files."""
+def format_commit(commit: dict) -> str:
+    """Format one commit with message, stats and files."""
     sha = commit.get("sha", "")[:7]
     msg = commit.get("message", "")
     stats = commit.get("stats", {})
@@ -33,18 +47,29 @@ def _format_commit(commit: dict) -> str:
     deletions = stats.get("deletions", 0)
     files_str = ", ".join(files[:5]) if files else "нет изменений"
     if len(files) > 5:
-        files_str += f" и {len(files) - 5} ещё"
+        files_str += f" и ещё {len(files) - 5}"
     return f"- Коммит {sha}: {msg} (+{additions} -{deletions}, {files_str})"
 
 
-async def generate_news_article(commits: list[dict], context: list[str] | None = None, model: str | None = None) -> str:
-    if not commits:
-        return "Ничего нового. Сидите и ждите.\n"
+async def _complete(messages: list[dict], model: str | None) -> str:
     if model is None:
         model = os.environ.get("MODEL", "publisher/model")
-    openrouter_token = os.environ.get("OPENROUTER_TOKEN", "")
+    client = AsyncOpenAI(
+        api_key=os.environ.get("OPENROUTER_TOKEN", ""),
+        base_url=OPENROUTER_BASE_URL,
+    )
+    response = await client.chat.completions.create(model=model, messages=messages)
+    return response.choices[0].message.content.strip()
 
-    client = AsyncOpenAI(api_key=openrouter_token, base_url=OPENROUTER_BASE_URL)
+
+async def generate_news_article(
+    commits: list[dict],
+    context: list[str] | None = None,
+    model: str | None = None,
+) -> str:
+    """Generate a Monika-style news post about the given commits."""
+    if not commits:
+        return "Пока нет новых коммитов. Напишу, как только что-то появится! (^_^)\n"
 
     ctx_str = ""
     if context:
@@ -52,33 +77,37 @@ async def generate_news_article(commits: list[dict], context: list[str] | None =
         if recent:
             ctx_str = "\n\nНедавние сообщения в канале:\n" + "\n".join(f"- {c}" for c in recent)
 
-    commits_detail = "\n".join(_format_commit(c) for c in commits)
-
     repo_name = commits[0].get("repo", "unknown")
-    
-    prompt = (
-        "Monika следит за репозиторием " + repo_name + ". Вот последние коммиты:\n\n"
-        + commits_detail +
-        "\n\n"
-        "Напиши НОВОСТЬ на русском языке на 3-5 предложений. "
-        "Тон: элегантный, саркастичный, женщина с интеллектуальным самомнением "
-        "которая читает коммиты и делает из них новость. "
-        "Никаких шуток про Python, никаких шаблонных фраз. "
-        "Используй только факты из коммитов — что именно было сделано. "
-        "Будь убедительной, как будто ты давно следишь за этим проектом "
-        "и тебе надоели эти коммиты но ты всё равно напишешь новость. "
-        "Стиль: типичный редактор который знает что делает но терпеть не может "
-        "свою работу. Никакого маркдауна, никаких заголовков в формате ###."
-        + ctx_str +
-        "\n\nНовая новость:"
+    commits_detail = "\n".join(format_commit(c) for c in commits)
+    task = (
+        "Задача: напиши новость для канала о коммитах ниже. "
+        "Объём 3-5 предложений, только факты из коммитов, без Markdown, без хэштегов.\n\n"
+        "Репозиторий: " + repo_name + "\n"
+        "Коммиты:\n" + commits_detail + ctx_str + "\n\nНовость:"
     )
-
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    
-    article = response.choices[0].message.content.strip()
-    
+    messages = [
+        {"role": "system", "content": load_persona()},
+        {"role": "user", "content": task},
+    ]
+    article = await _complete(messages, model)
     tags = _make_hashtags(repo_name) + "\n" + _make_hashtags_extra(repo_name)
     return article + "\n\n" + tags
+
+
+async def chat_reply(
+    user_text: str,
+    history: list[dict] | None = None,
+    extra_context: str | None = None,
+    model: str | None = None,
+) -> str:
+    """Reply to a chat message as Monika using the persona and dialog history."""
+    messages = [{"role": "system", "content": load_persona()}]
+    if extra_context:
+        messages.append({"role": "system", "content": extra_context})
+    for msg in history or []:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_text})
+    return await _complete(messages, model)
